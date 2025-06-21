@@ -33,9 +33,17 @@ app.use('/api/dashboard', dashboardRoutes); // All dashboard routes will be pref
 const inventoryRoutes = require('./routes/inventoryRoutes');
 app.use('/api/inventory', inventoryRoutes); // All inventory routes will be prefixed with /api/inventory
 
-// Import and use sales routes (NEWLY ADDED FOR SALES)
+// Import and use sales routes
 const salesRoutes = require('./routes/salesRoutes');
 app.use('/api/sales', salesRoutes); // All sales routes will be prefixed with /api/sales
+
+// Import and use reports routes
+const reportsRoutes = require('./routes/reportsRoutes');
+app.use('/api/reports', reportsRoutes);
+
+// NEW: Import and use settings routes
+const settingsRoutes = require('./routes/settings'); // Assuming settings.js as previously provided
+app.use('/api/settings', settingsRoutes); // All settings routes will be prefixed with /api/settings
 
 // Start the server
 app.listen(PORT, () => {

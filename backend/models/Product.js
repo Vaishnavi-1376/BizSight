@@ -35,10 +35,7 @@ const ProductSchema = new mongoose.Schema({
     timestamps: true // Adds createdAt and updatedAt fields
 });
 
-// IMPORTANT: Add a compound unique index to ensure name is unique PER USER
-// This means user A can have "Laptop", and user B can also have "Laptop".
-// If you truly want product names unique across ALL users, keep `unique: true` on 'name'
-// and remove this compound index.
+
 ProductSchema.index({ name: 1, user: 1 }, { unique: true });
 
 module.exports = mongoose.model('Product', ProductSchema);

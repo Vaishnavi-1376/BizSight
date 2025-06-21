@@ -13,7 +13,7 @@ const { protect } = require('../middleware/authMiddleware'); // <-- Corrected to
 // Helper to generate JWT token
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: '7d' // Token expires in 1 hour
+        expiresIn: '7d' // Token expires in 7 days (as per your original code)
     });
 };
 
@@ -49,7 +49,7 @@ router.post('/register', async (req, res) => {
             fullName,
             username,
             email,
-            password,
+            password, // Password will be hashed by the pre-save hook in the User model
             mobileNumber,
             // User is implicitly verified as there's no email step
         });
@@ -91,7 +91,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Invalid credentials (username not found)' });
         }
 
-        // Compare password
+        // Compare password using the method defined in your User model
         const isMatch = await user.matchPassword(password);
 
         if (!isMatch) {
@@ -118,9 +118,109 @@ router.post('/login', async (req, res) => {
 // @desc    Get user profile (protected route example)
 // @route   GET /api/auth/profile
 // @access  Private
-router.get('/profile', protect, (req, res) => { // This line (119) should now be correct
+router.get('/profile', protect, async (req, res) => {
     // req.user is populated by the protect middleware after verifying the JWT
-    res.json(req.user);
+    // Ensure we send back the full user object expected by the frontend
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        res.json(user);
+    } catch (error) {
+        console.error('Error fetching user profile:', error);
+        res.status(500).json({ message: 'Server error fetching profile' });
+    }
 });
+
+// @desc    Update user profile (username, fullName, mobileNumber, email)
+// @route   PUT /api/auth/update-profile
+// @access  Private
+router.put('/update-profile', protect, async (req, res) => {
+    const { fullName, username, email, mobileNumber } = req.body;
+    const userId = req.user.id; // User ID from the protect middleware
+
+    try {
+        let user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Check for duplicate username (if changed and belongs to another user)
+        if (username && username !== user.username) {
+            const existingUser = await User.findOne({ username });
+            if (existingUser && String(existingUser._id) !== String(userId)) {
+                return res.status(400).json({ message: 'Username already taken by another user' });
+            }
+            user.username = username;
+        }
+
+        // Check for duplicate email (if changed and belongs to another user)
+        if (email && email !== user.email) {
+            const existingUser = await User.findOne({ email });
+            if (existingUser && String(existingUser._id) !== String(userId)) {
+                return res.status(400).json({ message: 'Email already registered by another user' });
+            }
+            user.email = email;
+        }
+
+        // Check for duplicate mobileNumber (if changed and belongs to another user)
+        if (mobileNumber && mobileNumber !== user.mobileNumber) {
+            const existingUser = await User.findOne({ mobileNumber });
+            if (existingUser && String(existingUser._id) !== String(userId)) {
+                return res.status(400).json({ message: 'Mobile number already registered by another user' });
+            }
+            user.mobileNumber = mobileNumber;
+        }
+
+        // Update other fields
+        if (fullName) user.fullName = fullName;
+
+        await user.save();
+
+        res.json({
+            message: 'Profile updated successfully!',
+            _id: user._id,
+            fullName: user.fullName,
+            username: user.username,
+            email: user.email,
+            mobileNumber: user.mobileNumber,
+        });
+
+    } catch (error) {
+        console.error('Profile update error:', error);
+        res.status(500).json({ message: 'Server error during profile update' });
+    }
+});
+
+// @desc    Update user password
+// @route   PUT /api/auth/update-password
+// @access  Private
+router.put('/update-password', protect, async (req, res) => {
+    const { newPassword } = req.body;
+    const userId = req.user.id; // User ID from the protect middleware
+
+    if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+    }
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // User model's pre-save hook should handle hashing the new password
+        user.password = newPassword; // The pre-save hook will hash this
+        await user.save();
+
+        res.json({ message: 'Password updated successfully!' });
+
+    } catch (error) {
+        console.error('Password update error:', error);
+        res.status(500).json({ message: 'Server error during password update' });
+    }
+});
+
 
 module.exports = router;
