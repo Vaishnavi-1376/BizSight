@@ -14,6 +14,8 @@ import {
     PointElement,
     LineElement,
 } from 'chart.js';
+import html2canvas from 'html2canvas'; // Import html2canvas
+import jsPDF from 'jspdf';             // Import jsPDF
 
 // Register Chart.js components
 ChartJS.register(
@@ -32,7 +34,7 @@ const Reports = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // State variables for loading and data for each report type
+    // State variables for report data
     const [loading, setLoading] = useState(true);
     const [categorySalesData, setCategorySalesData] = useState({});
     const [productSalesData, setProductSalesData] = useState({});
@@ -42,17 +44,17 @@ const Reports = () => {
     const [realtimeAnalytics, setRealtimeAnalytics] = useState(null);
     const [dailySalesProgress, setDailySalesProgress] = useState(null);
 
-    // State for selected period for sales trends
-    const [salesTrendPeriod, setSalesTrendPeriod] = useState('month'); // Default to month
+    // State variables for sales trend filters
+    const [salesTrendPeriod, setSalesTrendPeriod] = useState('month');
     const [customStartDate, setCustomStartDate] = useState('');
     const [customEndDate, setCustomEndDate] = useState('');
 
+    // User information from local storage
     const user = JSON.parse(localStorage.getItem('user'));
     const userName = user ? user.username : 'User';
-
     const token = localStorage.getItem('token');
 
-    // Utility function to generate random colors for charts
+    // Function to generate random colors for charts
     const generateColors = (count) => {
         const colors = [];
         for (let i = 0; i < count; i++) {
@@ -64,7 +66,7 @@ const Reports = () => {
         return colors;
     };
 
-    // Main data fetching effect
+    // useEffect to fetch all report data when component mounts or token changes
     useEffect(() => {
         if (!token) {
             navigate('/login');
@@ -162,7 +164,7 @@ const Reports = () => {
         fetchData();
     }, [navigate, token]); // Re-run effect if navigate or token changes
 
-    // Effect for sales trends, dependent on salesTrendPeriod and custom dates
+    // useEffect to fetch sales trends data based on period/date filters
     useEffect(() => {
         const fetchSalesTrends = async () => {
             if (!token) return;
@@ -177,17 +179,15 @@ const Reports = () => {
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Sort data by date/period to ensure correct trend display
                     const sortedData = data.sort((a, b) => {
+                        // Custom sort for week-based data
                         if (typeof a._id === 'object' && a._id.year && a._id.week) {
-                            // For weekly data
                             if (a._id.year !== b._id.year) return a._id.year - b._id.year;
                             return a._id.week - b._id.week;
                         }
-                        // For daily/monthly/yearly string formats
-                        return a._id.localeCompare(b._id);
+                        // Default string/date sort
+                        return String(a._id).localeCompare(String(b._id));
                     });
-
 
                     const labels = sortedData.map(d => {
                         if (typeof d._id === 'object' && d._id.year && d._id.week) {
@@ -218,14 +218,14 @@ const Reports = () => {
         fetchSalesTrends();
     }, [salesTrendPeriod, customStartDate, customEndDate, token]);
 
-    // Chart options for dark theme
+    // Chart.js options for Bar and Line charts
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
             legend: {
                 labels: {
-                    color: '#cbd5e1' // text-gray-300
+                    color: '#cbd5e1' // Tailwind gray-300 for legend text
                 }
             },
             tooltip: {
@@ -241,43 +241,44 @@ const Reports = () => {
                         return label;
                     }
                 },
-                titleColor: '#e2e8f0', // text-gray-200
-                bodyColor: '#cbd5e1', // text-gray-300
-                backgroundColor: 'rgba(31, 41, 55, 0.9)', // gray-800 with transparency
-                borderColor: '#4a5568', // gray-700
+                titleColor: '#e2e8f0', // Tailwind gray-200
+                bodyColor: '#cbd5e1', // Tailwind gray-300
+                backgroundColor: 'rgba(31, 41, 55, 0.9)', // Tailwind gray-800 with transparency
+                borderColor: '#4a5568', // Tailwind gray-600
                 borderWidth: 1,
             }
         },
         scales: {
             x: {
                 ticks: {
-                    color: '#cbd5e1' // text-gray-300
+                    color: '#cbd5e1' // Tailwind gray-300 for x-axis labels
                 },
                 grid: {
-                    color: 'rgba(74, 85, 104, 0.2)' // gray-700 with transparency
+                    color: 'rgba(74, 85, 104, 0.2)' // Tailwind gray-700 with transparency
                 }
             },
             y: {
                 ticks: {
-                    color: '#cbd5e1', // text-gray-300
+                    color: '#cbd5e1', // Tailwind gray-300 for y-axis labels
                     callback: function(value) {
                         return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value);
                     }
                 },
                 grid: {
-                    color: 'rgba(74, 85, 104, 0.2)' // gray-700 with transparency
+                    color: 'rgba(74, 85, 104, 0.2)' // Tailwind gray-700 with transparency
                 }
             }
         }
     };
 
+    // Chart.js options for Pie chart (slightly different due to radial scale)
     const pieOptions = {
         responsive: true,
-        maintainAspectRatio: false, // <-- IMPORTANT: Set this to false for better sizing
+        maintainAspectRatio: false,
         plugins: {
             legend: {
                 labels: {
-                    color: '#cbd5e1' // text-gray-300
+                    color: '#cbd5e1' // Tailwind gray-300
                 }
             },
             tooltip: {
@@ -302,12 +303,153 @@ const Reports = () => {
         }
     };
 
-
+    // Logout handler
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         navigate('/login');
     };
+
+    // --- NEW FUNCTION FOR PDF GENERATION ---
+    const generatePdfReport = async () => {
+        setLoading(true); // Indicate that PDF generation is in progress
+        const pdf = new jsPDF('p', 'mm', 'a4'); // 'p' for portrait, 'mm' for millimeters, 'a4' for A4 size
+        const pageHeight = pdf.internal.pageSize.height;
+        let yPos = 10; // Initial Y position for content
+
+        // Helper function to add a title to the PDF
+        const addTitle = (title, fontSize = 20) => {
+            pdf.setFontSize(fontSize);
+            pdf.setTextColor(255, 255, 255); // White color for title
+            pdf.text(title, 105, yPos, { align: 'center' }); // Center align
+            yPos += 10; // Increase Y position for next element
+        };
+
+        // Helper function to add a subtitle to the PDF
+        const addSubtitle = (subtitle, fontSize = 14) => {
+            pdf.setFontSize(fontSize);
+            pdf.setTextColor(200, 200, 200); // Lighter gray for subtitles
+            pdf.text(subtitle, 10, yPos);
+            yPos += 7;
+        };
+
+        // Helper function to add general text to the PDF
+        const addText = (text, fontSize = 10, color = [180, 180, 180]) => {
+            pdf.setFontSize(fontSize);
+            pdf.setTextColor(color[0], color[1], color[2]);
+            pdf.text(text, 10, yPos);
+            yPos += 6;
+        };
+
+        // Helper function to add charts to the PDF by capturing their HTML elements
+        const addChart = async (elementId, title) => {
+            const chartElement = document.getElementById(elementId);
+            if (chartElement) {
+                // html2canvas options: capture the background color, use CORS if elements from other origins, enable logging
+                const canvas = await html2canvas(chartElement, {
+                    backgroundColor: '#1f2937', // Match your component's background color (gray-800)
+                    useCORS: true,
+                    logging: true,
+                });
+                const imgData = canvas.toDataURL('image/png'); // Get image data as PNG
+                const imgWidth = 190; // Image width on PDF (A4 width 210mm - 2*10mm margins)
+                const imgHeight = (canvas.height * imgWidth) / canvas.width; // Calculate proportional height
+
+                // Check if new page is needed before adding the chart
+                if (yPos + imgHeight + 20 > pageHeight) { // 20mm bottom margin
+                    pdf.addPage();
+                    yPos = 10; // Reset Y position for new page
+                }
+                
+                addSubtitle(title); // Add chart title
+                pdf.addImage(imgData, 'PNG', 10, yPos, imgWidth, imgHeight); // Add image to PDF
+                yPos += imgHeight + 10; // Move Y position down after adding image + margin
+            }
+        };
+
+        // --- PDF Content Generation ---
+
+        // Header Section
+        pdf.setFont('helvetica'); // Set font
+        pdf.setFillColor(31, 41, 55); // Tailwind gray-800 for header background
+        pdf.rect(0, 0, pdf.internal.pageSize.width, 30, 'F'); // Draw header rectangle
+        pdf.setFontSize(24);
+        pdf.setTextColor(255, 255, 255); // White text
+        pdf.text('BizSight. Sales Report', 105, 15, { align: 'center' });
+        pdf.setFontSize(10);
+        pdf.setTextColor(180, 180, 180); // Lighter gray for header subtitle
+        pdf.text(`Generated by ${userName} on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 105, 25, { align: 'center' });
+
+        yPos = 40; // Start content below the header area
+
+        // Overview Section
+        addTitle('Overview', 18);
+        addText(`Daily Sales Today: ₹${dailySalesProgress?.totalSalesToday ? dailySalesProgress.totalSalesToday.toFixed(2) : '0.00'}`, 12);
+        addText(`Items Sold Today: ${dailySalesProgress?.totalQuantitySoldToday || 0} units`, 12);
+        addText(`Weekly Sales Comparison: ${realtimeAnalytics?.salesTrendMessage || 'N/A'}`, 12);
+        // Color the sales change percentage based on its value
+        addText(`Change: ${realtimeAnalytics?.salesChangePercent || '0.00'}%`, 12, parseFloat(realtimeAnalytics?.salesChangePercent) >= 0 ? [0, 200, 0] : [200, 0, 0]); // Green for increase, Red for decrease
+        yPos += 10; // Extra space after overview
+
+        // Call addChart for each chart section. Ensure the IDs match the HTML elements.
+        if (categorySalesData.labels && categorySalesData.labels.length > 0) {
+            await addChart('category-sales-chart-container', 'Sales by Category Breakdown');
+        } else {
+             addText('No Category Sales data to display.', 10, [150, 150, 150]);
+             yPos += 10;
+        }
+
+        if (productSalesData.labels && productSalesData.labels.length > 0) {
+            await addChart('product-sales-chart-container', 'Sales by Product Overview');
+        } else {
+            addText('No Product Sales data to display.', 10, [150, 150, 150]);
+            yPos += 10;
+        }
+
+        if (salesTrendsData.labels && salesTrendsData.labels.length > 0) {
+             await addChart('sales-trends-chart-container', `Sales Trends (${salesTrendPeriod.charAt(0).toUpperCase() + salesTrendPeriod.slice(1)})`);
+        } else {
+            addText('No Sales Trend data to display for the selected period.', 10, [150, 150, 150]);
+            yPos += 10;
+        }
+
+        // Top Selling Products List
+        if (topSellingProducts.length > 0) {
+            if (yPos + 50 > pageHeight - 20) { // Estimate space needed for list, add new page if necessary
+                pdf.addPage();
+                yPos = 10;
+            }
+            addSubtitle('Top 5 Selling Products');
+            topSellingProducts.forEach((product, index) => {
+                addText(`${index + 1}. ${product.productName} (₹${product.totalRevenue ? product.totalRevenue.toFixed(2) : '0.00'} revenue, ${product.totalQuantitySold || 0} sold)`);
+            });
+            yPos += 10; // Space after list
+        } else {
+            addText('No Top Selling Products data available.', 10, [150, 150, 150]);
+            yPos += 10;
+        }
+
+        // Least Selling Products List
+        if (leastSellingProducts.length > 0) {
+            if (yPos + 50 > pageHeight - 20) { // Estimate space needed for list, add new page if necessary
+                pdf.addPage();
+                yPos = 10;
+            }
+            addSubtitle('Least 5 Selling Products');
+            leastSellingProducts.forEach((product, index) => {
+                addText(`${index + 1}. ${product.productName} (₹${product.totalRevenue ? product.totalRevenue.toFixed(2) : '0.00'} revenue, ${product.totalQuantitySold || 0} sold)`);
+            });
+            yPos += 10; // Space after list
+        } else {
+            addText('No Least Selling Products data available.', 10, [150, 150, 150]);
+            yPos += 10;
+        }
+
+        // Save the PDF with a dynamic filename
+        pdf.save(`BizSight_Sales_Report_${new Date().toISOString().slice(0,10)}.pdf`);
+        setLoading(false); // Hide loading after PDF generation is complete
+    };
+
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
@@ -339,13 +481,27 @@ const Reports = () => {
 
                 {/* Reports Specific Content Area */}
                 <main className="flex-1 overflow-y-auto p-8">
-                    <h1 className="text-3xl font-bold text-white mb-8">Sales Reports & Analytics</h1>
+                    <div className="flex justify-between items-center mb-8">
+                        <h1 className="text-3xl font-bold text-white">Sales Reports & Analytics</h1>
+                        {/* Download PDF Report button */}
+                        <button
+                            onClick={generatePdfReport}
+                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg flex items-center transition duration-200"
+                            disabled={loading} // Disable button while data is loading or PDF is generating
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M.015 11.233L10 16.5 19.985 11.233V.5H.015v10.733zM10 18.5l-9.985-5.233V17.5c0 1.38 1.12 2.5 2.5 2.5h14.97c1.38 0 2.5-1.12 2.5-2.5v-4.233L10 18.5z" clipRule="evenodd" />
+                                <path d="M12 9.5a.5.5 0 00-1 0v3.793l-1.146-1.147a.5.5 0 00-.708.708l2 2a.5.5 0 00.708 0l2-2a.5.5 0 00-.708-.708L12 13.293V9.5z" />
+                            </svg>
+                            {loading ? 'Generating PDF...' : 'Download PDF Report'}
+                        </button>
+                    </div>
 
-                    {loading ? (
+                    {loading && !categorySalesData.labels && !productSalesData.labels ? (
                         <p className="text-gray-400">Loading sales reports and analytics...</p>
                     ) : (
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-                            {/* Daily Sales Progress */}
+                            {/* Daily Sales Progress Card */}
                             <div className="bg-gray-800 p-6 rounded-lg shadow-md flex flex-col justify-between">
                                 <div>
                                     <h2 className="text-xl font-semibold text-gray-300 mb-4">Daily Sales Overview</h2>
@@ -365,23 +521,23 @@ const Reports = () => {
                                     )}
                                 </div>
 
-                                {/* Simple visual indicator / placeholder for future progress bar */}
+                                {/* Progress Bar and message for daily sales */}
                                 <div className="mt-6 pt-4 border-t border-gray-700">
                                     <p className="text-sm text-gray-500">Data updates throughout the day.</p>
                                     <div className="w-full bg-gray-700 rounded-full h-2.5 mt-2">
-                                        {/* Example of a static "progress" bar for visual fill. Can be made dynamic later. */}
                                         <div
                                             className="bg-green-500 h-2.5 rounded-full"
-                                            style={{ width: `${Math.min(100, (dailySalesProgress?.totalSalesToday / 10000) * 100).toFixed(0)}%` }} /* Example: 10000 is a hypothetical daily target */
+                                            // Assuming a daily sales goal of ₹10,000 for progress bar example
+                                            style={{ width: `${Math.min(100, ((dailySalesProgress?.totalSalesToday || 0) / 10000) * 100).toFixed(0)}%` }}
                                         ></div>
                                     </div>
                                     <p className="text-xs text-gray-400 mt-1">
-                                        {dailySalesProgress?.totalSalesToday > 0 ? `Target progress: ${Math.min(100, (dailySalesProgress?.totalSalesToday / 10000) * 100).toFixed(0)}%` : 'Set a daily goal to track progress!'}
+                                        {dailySalesProgress?.totalSalesToday > 0 ? `Target progress: ${Math.min(100, ((dailySalesProgress?.totalSalesToday || 0) / 10000) * 100).toFixed(0)}%` : 'Set a daily goal to track progress!'}
                                     </p>
                                 </div>
                             </div>
 
-                            {/* Real-time Analytics / Sales Comparison */}
+                            {/* Real-time Analytics / Sales Comparison Card */}
                             <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-1">
                                 <h2 className="text-xl font-semibold text-gray-300 mb-4">Weekly Sales Comparison</h2>
                                 {realtimeAnalytics ? (
@@ -409,11 +565,10 @@ const Reports = () => {
                                 )}
                             </div>
 
-                            {/* Category-wise Sales Breakdown (Pie Chart) */}
-                            <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-1">
+                            {/* Category-wise Sales Breakdown (Pie Chart) - ADDED ID FOR PDF CAPTURE */}
+                            <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-1" id="category-sales-chart-container">
                                 <h2 className="text-xl font-semibold text-gray-300 mb-4">Sales by Category</h2>
                                 {categorySalesData.labels && categorySalesData.labels.length > 0 ? (
-                                    // Adjusted container for better sizing
                                     <div className="relative w-full" style={{ height: '350px' }}>
                                         <Pie data={categorySalesData} options={pieOptions} />
                                     </div>
@@ -422,8 +577,8 @@ const Reports = () => {
                                 )}
                             </div>
 
-                            {/* Product-wise Sales Breakdown (Bar Chart) */}
-                            <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-full xl:col-span-2">
+                            {/* Product-wise Sales Breakdown (Bar Chart) - ADDED ID FOR PDF CAPTURE */}
+                            <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-full xl:col-span-2" id="product-sales-chart-container">
                                 <h2 className="text-xl font-semibold text-gray-300 mb-4">Sales by Product</h2>
                                 {productSalesData.labels && productSalesData.labels.length > 0 ? (
                                     <div style={{ height: '400px' }}>
@@ -434,8 +589,8 @@ const Reports = () => {
                                 )}
                             </div>
 
-                            {/* Sales Trends Over Time (Line Chart) */}
-                            <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-full">
+                            {/* Sales Trends Over Time (Line Chart) - ADDED ID FOR PDF CAPTURE */}
+                            <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-full" id="sales-trends-chart-container">
                                 <h2 className="text-xl font-semibold text-gray-300 mb-4">Sales Trends</h2>
                                 <div className="mb-4 flex flex-wrap items-center space-x-4">
                                     <label htmlFor="period-select" className="text-gray-300 mr-2">View by:</label>
@@ -445,7 +600,7 @@ const Reports = () => {
                                         value={salesTrendPeriod}
                                         onChange={(e) => {
                                             setSalesTrendPeriod(e.target.value);
-                                            setCustomStartDate(''); // Clear custom dates on period change
+                                            setCustomStartDate(''); // Clear custom dates when period changes
                                             setCustomEndDate('');
                                         }}
                                     >
@@ -482,14 +637,14 @@ const Reports = () => {
                                 )}
                             </div>
 
-                            {/* Top 5 Selling Products */}
+                            {/* Top 5 Selling Products List */}
                             <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-1">
                                 <h2 className="text-xl font-semibold text-gray-300 mb-4">Top 5 Selling Products</h2>
                                 {topSellingProducts.length > 0 ? (
                                     <ul className="space-y-2">
                                         {topSellingProducts.map((product, index) => (
                                             <li key={product._id} className="text-gray-300">
-                                                {index + 1}. {product.productName} (₹{product.totalRevenue.toFixed(2)} revenue, {product.totalQuantitySold} sold)
+                                                {index + 1}. {product.productName} (₹{product.totalRevenue ? product.totalRevenue.toFixed(2) : '0.00'} revenue, {product.totalQuantitySold || 0} sold)
                                             </li>
                                         ))}
                                     </ul>
@@ -498,14 +653,14 @@ const Reports = () => {
                                 )}
                             </div>
 
-                            {/* Least 5 Selling Products */}
+                            {/* Least 5 Selling Products List */}
                             <div className="bg-gray-800 p-6 rounded-lg shadow-md col-span-1">
                                 <h2 className="text-xl font-semibold text-gray-300 mb-4">Least 5 Selling Products</h2>
                                 {leastSellingProducts.length > 0 ? (
                                     <ul className="space-y-2">
                                         {leastSellingProducts.map((product, index) => (
                                             <li key={product._id} className="text-gray-300">
-                                                {index + 1}. {product.productName} (₹{product.totalRevenue.toFixed(2)} revenue, {product.totalQuantitySold} sold)
+                                                {index + 1}. {product.productName} (₹{product.totalRevenue ? product.totalRevenue.toFixed(2) : '0.00'} revenue, {product.totalQuantitySold || 0} sold)
                                             </li>
                                         ))}
                                     </ul>

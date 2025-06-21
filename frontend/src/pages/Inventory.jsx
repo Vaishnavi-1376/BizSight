@@ -1,10 +1,10 @@
 // frontend/src/pages/Inventory.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-// axios is usually imported if you're using it, but you're using 'fetch' directly, which is fine.
-// If you intended to use axios, make sure it's installed (npm install axios) and imported.
+// ✅ Inventory.jsx with QR Code Scan for Product Lookup
+import Html5QrCodeScanner from '../components/Html5QrCodeScanner'; // QR scanner component
 
-// Modal component for editing products (remains the same as before, but add category)
+
 const EditProductModal = ({ product, onClose, onSave }) => {
     const [name, setName] = useState(product.name);
     const [price, setPrice] = useState(product.price);
@@ -177,6 +177,8 @@ const Inventory = () => {
     useEffect(() => {
         fetchProducts();
     }, [navigate]);
+
+    
 
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);

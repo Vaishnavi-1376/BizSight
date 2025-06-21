@@ -1,14 +1,17 @@
 // frontend/src/pages/Sales.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+// REMOVE THIS LINE: import { QrReader } from 'react-qr-reader';
+// ADD THIS LINE:
+import Html5QrCodeScanner from '../components/Html5QrCodeScanner'; // Adjust path if you put it elsewhere
 
 const Sales = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const [products, setProducts] = useState([]); // All available products for selection
+    const [products, setProducts] = useState([]);
     const [loadingProducts, setLoadingProducts] = useState(true);
-    const [sales, setSales] = useState([]); // List of recorded sales
+    const [sales, setSales] = useState([]);
     const [loadingSales, setLoadingSales] = useState(true);
 
     // State for Sales CSV upload
@@ -18,12 +21,16 @@ const Sales = () => {
 
     // State for Manual Sale Entry
     const [manualSaleProductId, setManualSaleProductId] = useState('');
-    const [manualSaleQuantity, setManualSaleQuantity] = useState('');
+    const [manualSaleQuantity, setManualSaleQuantity] = useState(1);
     const [manualSaleDate, setManualSaleDate] = useState('');
     const [manualSaleTime, setManualSaleTime] = useState('');
-    // Removed manualSaleChannel state as it's no longer needed
     const [manualSaleMessage, setManualSaleMessage] = useState('');
     const [manualSaleMessageType, setManualSaleMessageType] = useState('');
+
+    // State for QR Code Scanner
+    const [qrScanResult, setQrScanResult] = useState('');
+    const [showQrScanner, setShowQrScanner] = useState(false);
+    const [qrScanError, setQrScanError] = useState('');
 
     const user = JSON.parse(localStorage.getItem('user'));
     const userName = user ? user.username : 'User';
@@ -44,7 +51,7 @@ const Sales = () => {
                 throw new Error('Failed to fetch products for sales entry.');
             }
             const data = await response.json();
-            setProducts(data); // Get all products, not just those with stock, so we can display details
+            setProducts(data);
         } catch (err) {
             console.error('Error fetching products:', err.message);
             setManualSaleMessage(`Error fetching products: ${err.message}`);
@@ -83,10 +90,9 @@ const Sales = () => {
     useEffect(() => {
         fetchAllProducts();
         fetchSales();
-        // Set default date and time to current
         const now = new Date();
-        setManualSaleDate(now.toISOString().split('T')[0]); // YYYY-MM-DD
-        setManualSaleTime(now.toTimeString().split(' ')[0].substring(0, 5)); // HH:MM
+        setManualSaleDate(now.toISOString().split('T')[0]);
+        setManualSaleTime(now.toTimeString().split(' ')[0].substring(0, 5));
     }, [navigate]);
 
     // --- Handle Sales CSV Upload ---
@@ -94,6 +100,8 @@ const Sales = () => {
         setSelectedSalesFile(event.target.files[0]);
         setSalesUploadMessage('');
         setManualSaleMessage('');
+        setQrScanResult('');
+        setQrScanError('');
     };
 
     const handleSalesUpload = async (event) => {
@@ -110,6 +118,8 @@ const Sales = () => {
         setSalesUploadMessage('Uploading sales CSV...');
         setSalesUploadMessageType('');
         setManualSaleMessage('');
+        setQrScanResult('');
+        setQrScanError('');
 
         try {
             const token = localStorage.getItem('token');
@@ -131,11 +141,10 @@ const Sales = () => {
             if (response.ok) {
                 setSalesUploadMessage(data.message);
                 setSalesUploadMessageType('success');
-                setSelectedSalesFile(null); // Clear selected file
-                fetchSales(); // Refresh sales list
-                fetchAllProducts(); // Refresh product stock levels
+                setSelectedSalesFile(null);
+                fetchSales();
+                fetchAllProducts();
             } else {
-                // Corrected error handling for CSV upload
                 let errorMessage = data.message || 'Sales CSV upload failed.';
                 if (data.details) {
                     if (data.details.initialParseErrors && data.details.initialParseErrors.length > 0) {
@@ -162,9 +171,11 @@ const Sales = () => {
         event.preventDefault();
         setManualSaleMessage('');
         setManualSaleMessageType('');
-        setSalesUploadMessage(''); // Clear other messages
+        setSalesUploadMessage('');
+        setQrScanResult('');
+        setQrScanError('');
 
-        if (!manualSaleProductId || !manualSaleQuantity || parseInt(manualSaleQuantity) <= 0) {
+        if (!manualSaleProductId || parseInt(manualSaleQuantity) <= 0) {
             setManualSaleMessage('Please select a product and enter a positive quantity.');
             setManualSaleMessageType('error');
             return;
@@ -184,10 +195,9 @@ const Sales = () => {
             return;
         }
 
-        // Combine date and time
         const combinedDateTime = manualSaleDate && manualSaleTime ?
-                                    new Date(`${manualSaleDate}T${manualSaleTime}:00`) :
-                                    new Date(); // Default to now if not fully provided
+                                  new Date(`${manualSaleDate}T${manualSaleTime}:00`) :
+                                  new Date();
 
         try {
             const token = localStorage.getItem('token');
@@ -205,8 +215,7 @@ const Sales = () => {
                 body: JSON.stringify({
                     productId: manualSaleProductId,
                     quantity: qty,
-                    saleDate: combinedDateTime.toISOString() // Send as ISO string
-                    // 'channel' is no longer sent from frontend
+                    saleDate: combinedDateTime.toISOString()
                 })
             });
 
@@ -215,16 +224,15 @@ const Sales = () => {
             if (response.ok) {
                 setManualSaleMessage(data.message);
                 setManualSaleMessageType('success');
-                // Clear form fields
                 setManualSaleProductId('');
-                setManualSaleQuantity('');
-                // Keep date/time as current defaults or let them reset
+                setManualSaleQuantity(1);
                 const now = new Date();
                 setManualSaleDate(now.toISOString().split('T')[0]);
                 setManualSaleTime(now.toTimeString().split(' ')[0].substring(0, 5));
+                setQrScanResult('');
 
-                fetchSales(); // Refresh sales list
-                fetchAllProducts(); // Refresh product stock levels
+                fetchSales();
+                fetchAllProducts();
             } else {
                 setManualSaleMessage(data.message || 'Failed to record sale.');
                 setManualSaleMessageType('error');
@@ -236,6 +244,33 @@ const Sales = () => {
         }
     };
 
+    // --- QR Scanner Handlers (now use new Html5QrCodeScanner component) ---
+    const handleScanSuccess = (decodedText, decodedResult) => {
+        // Prevent multiple scans from rapidly filling the input
+        if (decodedText && decodedText !== qrScanResult) {
+            setQrScanResult(decodedText);
+            setManualSaleProductId(decodedText);
+            setQrScanError('');
+            setManualSaleQuantity(1); // Default to 1 for scanned items
+
+            const scannedProduct = products.find(p => p._id === decodedText);
+            if (!scannedProduct) {
+                setManualSaleMessage('Scanned product not found in inventory. Please check the QR code or add the product.');
+                setManualSaleMessageType('error');
+            } else {
+                setManualSaleMessage(`Product "${scannedProduct.name}" scanned successfully.`);
+                setManualSaleMessageType('success');
+            }
+        }
+    };
+
+    const handleScanError = (errorMessage) => {
+        // Only update error if it's not a 'QR code not found' message
+        if (errorMessage && !errorMessage.includes('No QR code found')) {
+            setQrScanError(`Scanner Error: ${errorMessage}`);
+            console.warn(`QR Scanner Error: ${errorMessage}`);
+        }
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -306,9 +341,46 @@ const Sales = () => {
                         )}
                     </div>
 
-                    {/* Manual Sale Entry Section */}
+                    {/* Manual Sale Entry Section with QR */}
                     <div className="bg-gray-800 p-6 rounded-lg shadow-md mb-8">
-                        <h2 className="text-xl font-semibold text-gray-300 mb-4">Record New Sale Manually</h2>
+                        <h2 className="text-xl font-semibold text-gray-300 mb-4">Record New Sale (Manual or QR Scan)</h2>
+
+                        <div className="mb-6">
+                            <button
+                                onClick={() => {
+                                    setShowQrScanner(!showQrScanner);
+                                    setQrScanError('');
+                                    setQrScanResult('');
+                                    setManualSaleProductId('');
+                                }}
+                                className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors"
+                            >
+                                {showQrScanner ? 'Hide QR Scanner' : 'Scan Product QR Code'}
+                            </button>
+                        </div>
+
+                        {showQrScanner && (
+                            <div className="relative w-full max-w-sm mx-auto mb-6 p-4 border border-gray-700 rounded-lg bg-gray-700">
+                                <h3 className="text-lg font-medium text-gray-300 mb-2">Point camera at QR code:</h3>
+                                {/* Use the new Html5QrCodeScanner component here */}
+                                <Html5QrCodeScanner
+                                    onScanSuccess={handleScanSuccess}
+                                    onScanError={handleScanError}
+                                />
+                                {qrScanResult && (
+                                    <p className="mt-2 text-center text-green-400 font-semibold">
+                                        Scanned ID: {qrScanResult.length > 20 ? qrScanResult.substring(0, 17) + '...' : qrScanResult}
+                                    </p>
+                                )}
+                                {qrScanError && (
+                                    <p className="mt-2 text-center text-red-400">{qrScanError}</p>
+                                )}
+                                <p className="mt-2 text-sm text-gray-400">
+                                    {qrScanResult ? "Product ID loaded into form." : "Awaiting QR code scan..."}
+                                </p>
+                            </div>
+                        )}
+
                         <form onSubmit={handleManualSaleSubmit} className="space-y-4">
                             <div>
                                 <label htmlFor="manualSaleProduct" className="block text-sm font-medium text-gray-400 mb-1">Product</label>
@@ -319,8 +391,12 @@ const Sales = () => {
                                         id="manualSaleProduct"
                                         className="w-full p-2 rounded-md bg-gray-700 border border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500"
                                         value={manualSaleProductId}
-                                        onChange={(e) => setManualSaleProductId(e.target.value)}
+                                        onChange={(e) => {
+                                            setManualSaleProductId(e.target.value);
+                                            setQrScanResult('');
+                                        }}
                                         required
+                                        disabled={showQrScanner && qrScanResult}
                                     >
                                         <option value="">-- Select a product --</option>
                                         {products.map(product => (
@@ -339,13 +415,12 @@ const Sales = () => {
                                         id="manualSaleQuantity"
                                         className="w-full p-2 rounded-md bg-gray-700 border border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500"
                                         value={manualSaleQuantity}
-                                        onChange={(e) => setManualSaleQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))} // Min 1
+                                        onChange={(e) => setManualSaleQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
                                         min="1"
                                         required
                                     />
                                 </div>
-                                {/* Removed the sales channel dropdown */}
-                                <div className="hidden"> {/* Keep this div but hide it if you want to reuse the grid layout */}
+                                <div className="hidden">
                                     <label htmlFor="manualSaleDummy" className="block text-sm font-medium text-gray-400 mb-1">Sales Channel (Always Offline Store)</label>
                                     <input
                                         type="text"
@@ -409,7 +484,6 @@ const Sales = () => {
                                         <tr>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Sale ID</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Date & Time</th>
-                                            {/* Removed Channel column */}
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Items Sold</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Amount</th>
                                         </tr>
@@ -423,7 +497,6 @@ const Sales = () => {
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                                     {new Date(sale.saleDate).toLocaleDateString()} {new Date(sale.saleDate).toLocaleTimeString()}
                                                 </td>
-                                                {/* Removed Channel cell */}
                                                 <td className="px-6 py-4 text-sm text-gray-300">
                                                     <ul className="list-disc list-inside">
                                                         {sale.items.map((item, index) => (
